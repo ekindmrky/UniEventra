@@ -3,7 +3,10 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { CheckCircle2, Loader2, LogOut, UserPlus } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { supabase } from '@/lib/supabase';
+import { isParticipationsTableMissingError } from '@/lib/participant-display';
+import { humanizeDbError } from '@/lib/db-guards';
 
 type JoinButtonProps = {
   eventId: string;
@@ -13,18 +16,11 @@ type JoinButtonProps = {
   onLeft?: () => void;
 };
 
-function isParticipationsTableMissingError(error: { code?: string; message?: string }) {
-  return (
-    error.code === '42P01' ||
-    error.code === 'PGRST205' ||
-    error.message?.includes("Could not find the table 'public.participations'") === true
-  );
-}
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-function isUuid(value: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-    value,
-  );
+function isUuid(value: string): boolean {
+  return UUID_RE.test(value);
 }
 
 export function JoinButton({
@@ -37,44 +33,43 @@ export function JoinButton({
   const router = useRouter();
   const [joined, setJoined] = useState(initiallyJoined);
   const [isLoading, setIsLoading] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(
-    participantsTableMissing
-      ? 'participations tablosu bulunamadi. Katilim kaydi su an olusturulamiyor.'
-      : null,
-  );
 
   async function handleJoin() {
-    if (isLoading || participantsTableMissing) return;
+    if (isLoading || participantsTableMissing) {
+      if (participantsTableMissing) {
+        toast.error('Katilim sistemi su an aktif degil.');
+      }
+      return;
+    }
 
     setIsLoading(true);
-    setErrorMessage(null);
-    try {
-      const {
-        data: { user },
-        error: authError,
-      } = await supabase.auth.getUser();
 
-      if (authError) {
-        console.error('Katilim auth kontrolu hatasi:', authError);
-        setErrorMessage(authError.message);
+    try {
+      // getSession() oturum yoksa hata FIRLATMAZ — sadece null doner.
+      // getUser() ise oturum yoksa AuthSessionMissingError firlatir.
+      // Client tarafinda her zaman getSession() ile basliyoruz.
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+
+      if (sessionError) {
+        console.error('Oturum kontrolu hatasi:', sessionError.message);
+        toast.error('Oturum dogrulanamadi. Lutfen tekrar giris yap.');
         return;
       }
 
-      // Oturum yoksa insert denemeden login'e yonlendir.
-      if (!user) {
+      if (!session) {
+        toast('Katilmak icin giris yapman gerekiyor.', { icon: '🔐' });
         router.push('/login');
         return;
       }
 
-      // RLS kuralinin bekledigi user_id degeri: auth.user.id (salt UUID string).
-      const currentUserId = user.id;
-      if (!currentUserId || !isUuid(currentUserId)) {
-        setErrorMessage('Gecerli bir kullanici kimligi bulunamadi. Lutfen tekrar giris yap.');
+      // Oturum varsa user.id guvenli sekilde session'dan okunur.
+      // getUser() network cagrisi yerine session'dan okuma: hizli ve hatasiz.
+      const currentUserId = session.user.id;
+      if (!isUuid(currentUserId)) {
+        toast.error('Gecersiz kullanici kimligi. Lutfen tekrar giris yap.');
         console.error('Gecersiz user_id, insert iptal edildi:', currentUserId);
         return;
       }
-
-      console.log("DB'ye giden ID:", currentUserId);
 
       if (joined) {
         const { error } = await supabase
@@ -85,12 +80,13 @@ export function JoinButton({
 
         if (error) {
           console.error('Katilimdan ayrilma hatasi:', error);
-          setErrorMessage(error.message);
+          toast.error(humanizeDbError(error));
           return;
         }
 
         setJoined(false);
         onLeft?.();
+        toast('Etkinlikten ayrildin.', { icon: '👋' });
         return;
       }
 
@@ -102,25 +98,28 @@ export function JoinButton({
         console.error('Katilim kaydi hatasi:', error);
 
         if (error.code === '23505') {
+          // Unique constraint: zaten katilmis (iki sekme acikken olabilir)
           setJoined(true);
           onJoined?.();
+          toast.success('Zaten bu etkinlige katilmistin!');
           return;
         }
 
         if (isParticipationsTableMissingError(error)) {
-          setErrorMessage('participations tablosu bulunamadi. Katilim kaydi olusturulamadi.');
+          toast.error('Katilim sistemi henuz hazir degil.');
           return;
         }
 
-        setErrorMessage(error.message);
+        toast.error(humanizeDbError(error));
         return;
       }
 
       setJoined(true);
       onJoined?.();
-    } catch (error) {
-      console.error('Katil fonksiyonu beklenmeyen hata:', error);
-      setErrorMessage('Beklenmeyen bir hata olustu. Lutfen tekrar dene.');
+      toast.success('Etkinlige basariyla katildin!');
+    } catch (err) {
+      console.error('Katil fonksiyonu beklenmeyen hata:', err);
+      toast.error('Beklenmeyen bir hata olustu. Lutfen tekrar dene.');
     } finally {
       setIsLoading(false);
     }
@@ -131,26 +130,26 @@ export function JoinButton({
     : 'border-indigo-400/40 bg-indigo-500/20 text-indigo-100 hover:bg-indigo-500/30';
 
   return (
-    <div className="flex flex-col items-end gap-2">
+    <div className="flex shrink-0 items-center gap-2">
       <button
         type="button"
         onClick={handleJoin}
         disabled={isLoading || participantsTableMissing}
-        className={`inline-flex items-center gap-2 rounded-lg border px-5 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-70 ${buttonClass}`}
+        className={`inline-flex items-center gap-1.5 rounded-xl border px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-70 ${buttonClass}`}
       >
         {isLoading ? (
           <>
-            <Loader2 className="h-4 w-4 animate-spin" />
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
             {joined ? 'Ayriliniyor...' : 'Isleniyor...'}
           </>
         ) : joined ? (
           <>
-            <CheckCircle2 className="h-4 w-4" />
+            <CheckCircle2 className="h-3.5 w-3.5" />
             Katildin
           </>
         ) : (
           <>
-            <UserPlus className="h-4 w-4" />
+            <UserPlus className="h-3.5 w-3.5" />
             Katil
           </>
         )}
@@ -161,14 +160,12 @@ export function JoinButton({
           type="button"
           onClick={handleJoin}
           disabled={isLoading || participantsTableMissing}
-          className="inline-flex items-center gap-2 rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-xs font-semibold text-slate-200 transition hover:border-slate-500 hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-70"
+          className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700/60 bg-slate-800/60 px-3 py-2 text-xs font-semibold text-slate-400 transition hover:border-slate-600 hover:bg-slate-700 hover:text-slate-200 disabled:cursor-not-allowed disabled:opacity-70"
         >
-          <LogOut className="h-3.5 w-3.5" />
+          <LogOut className="h-3 w-3" />
           Ayril
         </button>
       ) : null}
-
-      {errorMessage ? <p className="text-xs text-red-300">{errorMessage}</p> : null}
     </div>
   );
 }

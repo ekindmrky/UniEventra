@@ -1,8 +1,11 @@
 @import "tailwindcss";
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/*
+  Tailwind CSS v4: @import "tailwindcss" tek satir ile
+  base + components + utilities hepsini kapsar.
+  Eski v3 direktifleri (@tailwind base/components/utilities)
+  v4 ile uyumsuz oldugu icin kaldirildi.
+*/
 
 :root {
   color-scheme: dark;
