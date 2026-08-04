@@ -7,7 +7,7 @@ const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
   title: 'UniEventra',
-  description: 'Universite kampus etkinlikleri',
+  description: 'Üniversite kampüs etkinlikleri',
 };
 
 export const viewport: Viewport = {

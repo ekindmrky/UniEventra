@@ -2,42 +2,38 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { CheckCircle2, Loader2, LogOut, UserPlus } from 'lucide-react';
+import { CheckCircle2, Clock3, Loader2, LogOut, UserPlus } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { supabase } from '@/lib/supabase';
-import { isParticipationsTableMissingError } from '@/lib/participant-display';
-import { humanizeDbError } from '@/lib/db-guards';
+import type { ParticipationStatus } from '@/lib/types';
 
 type JoinButtonProps = {
   eventId: string;
-  initiallyJoined: boolean;
+  initialStatus: ParticipationStatus | null;
   participantsTableMissing: boolean;
-  onJoined?: () => void;
+  isFull: boolean;
+  onJoined?: (status: ParticipationStatus) => void;
   onLeft?: () => void;
+  size?: 'md' | 'lg';
 };
-
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-function isUuid(value: string): boolean {
-  return UUID_RE.test(value);
-}
 
 export function JoinButton({
   eventId,
-  initiallyJoined,
+  initialStatus,
   participantsTableMissing,
+  isFull,
   onJoined,
   onLeft,
+  size = 'md',
 }: JoinButtonProps) {
   const router = useRouter();
-  const [joined, setJoined] = useState(initiallyJoined);
+  const [status, setStatus] = useState<ParticipationStatus | null>(initialStatus);
   const [isLoading, setIsLoading] = useState(false);
 
-  async function handleJoin() {
+  async function handleToggle() {
     if (isLoading || participantsTableMissing) {
       if (participantsTableMissing) {
-        toast.error('Katilim sistemi su an aktif degil.');
+        toast.error('Katılım sistemi şu an aktif değil.');
       }
       return;
     }
@@ -45,125 +41,157 @@ export function JoinButton({
     setIsLoading(true);
 
     try {
-      // getSession() oturum yoksa hata FIRLATMAZ — sadece null doner.
-      // getUser() ise oturum yoksa AuthSessionMissingError firlatir.
-      // Client tarafinda her zaman getSession() ile basliyoruz.
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
 
-      if (sessionError) {
-        console.error('Oturum kontrolu hatasi:', sessionError.message);
-        toast.error('Oturum dogrulanamadi. Lutfen tekrar giris yap.');
-        return;
-      }
-
-      if (!session) {
-        toast('Katilmak icin giris yapman gerekiyor.', { icon: '🔐' });
+      if (sessionError || !session) {
+        toast.error('Katılmak için giriş yapman gerekiyor.');
         router.push('/login');
         return;
       }
 
-      // Oturum varsa user.id guvenli sekilde session'dan okunur.
-      // getUser() network cagrisi yerine session'dan okuma: hizli ve hatasiz.
-      const currentUserId = session.user.id;
-      if (!isUuid(currentUserId)) {
-        toast.error('Gecersiz kullanici kimligi. Lutfen tekrar giris yap.');
-        console.error('Gecersiz user_id, insert iptal edildi:', currentUserId);
-        return;
-      }
-
-      if (joined) {
-        const { error } = await supabase
-          .from('participations')
-          .delete()
-          .eq('event_id', eventId)
-          .eq('user_id', currentUserId);
+      if (status) {
+        const { error } = await supabase.rpc('leave_event', {
+          p_event_id: Number(eventId),
+        });
 
         if (error) {
-          console.error('Katilimdan ayrilma hatasi:', error);
-          toast.error(humanizeDbError(error));
-          return;
+          // RPC yoksa eski yönteme düş
+          if (error.message?.includes('Could not find the function') || error.code === 'PGRST202') {
+            const { error: delError } = await supabase
+              .from('participations')
+              .delete()
+              .eq('event_id', eventId)
+              .eq('user_id', session.user.id);
+            if (delError) {
+              toast.error(delError.message);
+              return;
+            }
+          } else {
+            toast.error(error.message);
+            return;
+          }
         }
 
-        setJoined(false);
+        setStatus(null);
         onLeft?.();
-        toast('Etkinlikten ayrildin.', { icon: '👋' });
+        toast.success('Etkinlikten ayrıldın.');
         return;
       }
 
-      const { error } = await supabase
-        .from('participations')
-        .insert({ event_id: eventId, user_id: currentUserId, status: 'confirmed' });
+      const { data, error } = await supabase.rpc('join_event', {
+        p_event_id: Number(eventId),
+      });
 
       if (error) {
-        console.error('Katilim kaydi hatasi:', error);
-
-        if (error.code === '23505') {
-          // Unique constraint: zaten katilmis (iki sekme acikken olabilir)
-          setJoined(true);
-          onJoined?.();
-          toast.success('Zaten bu etkinlige katilmistin!');
+        if (error.message?.includes('Could not find the function') || error.code === 'PGRST202') {
+          const fallbackStatus: ParticipationStatus = isFull ? 'waitlisted' : 'confirmed';
+          const { error: insError } = await supabase.from('participations').insert({
+            event_id: eventId,
+            user_id: session.user.id,
+            status: fallbackStatus,
+          });
+          if (insError) {
+            toast.error(insError.message);
+            return;
+          }
+          setStatus(fallbackStatus);
+          onJoined?.(fallbackStatus);
+          toast.success(
+            fallbackStatus === 'confirmed'
+              ? 'Etkinliğe başarıyla katıldın!'
+              : 'Bekleme listesine eklendin.',
+          );
           return;
         }
 
-        if (isParticipationsTableMissingError(error)) {
-          toast.error('Katilim sistemi henuz hazir degil.');
+        if (error.message?.includes('already_joined') || error.code === '23505') {
+          setStatus('confirmed');
+          onJoined?.('confirmed');
+          toast.success('Zaten bu etkinliğe kayıtlısın!');
           return;
         }
 
-        toast.error(humanizeDbError(error));
+        toast.error(error.message);
         return;
       }
 
-      setJoined(true);
-      onJoined?.();
-      toast.success('Etkinlige basariyla katildin!');
+      const nextStatus = (data as { status?: ParticipationStatus } | null)?.status ?? 'confirmed';
+      setStatus(nextStatus);
+      onJoined?.(nextStatus);
+      toast.success(
+        nextStatus === 'confirmed'
+          ? 'Etkinliğe başarıyla katıldın!'
+          : 'Kontenjan doldu — bekleme listesine eklendin.',
+      );
     } catch (err) {
-      console.error('Katil fonksiyonu beklenmeyen hata:', err);
-      toast.error('Beklenmeyen bir hata olustu. Lutfen tekrar dene.');
+      console.error(err);
+      toast.error('Beklenmeyen bir hata oluştu.');
     } finally {
       setIsLoading(false);
     }
   }
 
+  const large = size === 'lg';
+  const joined = status === 'confirmed';
+  const waitlisted = status === 'waitlisted';
+
   const buttonClass = joined
     ? 'border-emerald-400/40 bg-emerald-500/20 text-emerald-100 hover:bg-emerald-500/30'
-    : 'border-indigo-400/40 bg-indigo-500/20 text-indigo-100 hover:bg-indigo-500/30';
+    : waitlisted
+      ? 'border-amber-400/40 bg-amber-500/20 text-amber-100 hover:bg-amber-500/30'
+      : isFull
+        ? 'border-amber-500/40 bg-amber-500 text-slate-950 hover:bg-amber-400 border-transparent'
+        : 'border-transparent bg-indigo-600 text-white hover:bg-indigo-500';
 
   return (
-    <div className="flex shrink-0 items-center gap-2">
+    <div className={`flex items-center gap-2 ${large ? 'w-full' : 'shrink-0'}`}>
       <button
         type="button"
-        onClick={handleJoin}
+        onClick={handleToggle}
         disabled={isLoading || participantsTableMissing}
-        className={`inline-flex items-center gap-1.5 rounded-xl border px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-70 ${buttonClass}`}
+        className={`inline-flex items-center justify-center gap-2 rounded-xl border font-bold transition disabled:cursor-not-allowed disabled:opacity-70 ${buttonClass} ${
+          large ? 'w-full px-5 py-3 text-sm' : 'px-4 py-2 text-sm font-semibold'
+        }`}
       >
         {isLoading ? (
           <>
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            {joined ? 'Ayriliniyor...' : 'Isleniyor...'}
+            <Loader2 className="h-4 w-4 animate-spin" />
+            İşleniyor...
           </>
         ) : joined ? (
           <>
-            <CheckCircle2 className="h-3.5 w-3.5" />
-            Katildin
+            <CheckCircle2 className="h-4 w-4" />
+            Katıldın
+          </>
+        ) : waitlisted ? (
+          <>
+            <Clock3 className="h-4 w-4" />
+            Bekleme listesinde
+          </>
+        ) : isFull ? (
+          <>
+            <Clock3 className="h-4 w-4" />
+            Bekleme listesine gir
           </>
         ) : (
           <>
-            <UserPlus className="h-3.5 w-3.5" />
-            Katil
+            <UserPlus className="h-4 w-4" />
+            Katıl
           </>
         )}
       </button>
 
-      {joined ? (
+      {status ? (
         <button
           type="button"
-          onClick={handleJoin}
+          onClick={handleToggle}
           disabled={isLoading || participantsTableMissing}
-          className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700/60 bg-slate-800/60 px-3 py-2 text-xs font-semibold text-slate-400 transition hover:border-slate-600 hover:bg-slate-700 hover:text-slate-200 disabled:cursor-not-allowed disabled:opacity-70"
+          className={`inline-flex items-center justify-center gap-1.5 rounded-xl border border-slate-700/60 bg-slate-800/60 font-semibold text-slate-400 transition hover:border-slate-600 hover:bg-slate-700 hover:text-slate-200 disabled:cursor-not-allowed disabled:opacity-70 ${
+            large ? 'px-4 py-3 text-sm' : 'px-3 py-2 text-xs'
+          }`}
         >
-          <LogOut className="h-3 w-3" />
-          Ayril
+          <LogOut className="h-3.5 w-3.5" />
+          Ayrıl
         </button>
       ) : null}
     </div>

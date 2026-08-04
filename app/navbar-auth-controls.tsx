@@ -22,11 +22,11 @@ export function NavbarAuthControls({ isLoggedIn, displayName, role }: NavbarAuth
     setIsSigningOut(true);
     const { error } = await supabase.auth.signOut();
     if (error) {
-      toast.error('Cikis yapilirken bir hata olustu.');
+      toast.error('Çıkış yapılırken bir hata oluştu.');
       setIsSigningOut(false);
       return;
     }
-    toast('Cikis yapildi. Gorusuruz!', { icon: '👋' });
+    toast.success('Çıkış yapıldı');
     router.push('/');
     router.refresh();
     setIsSigningOut(false);
@@ -36,43 +36,40 @@ export function NavbarAuthControls({ isLoggedIn, displayName, role }: NavbarAuth
     return (
       <Link
         href="/login"
-        className="rounded-full bg-indigo-600 px-4 py-2 text-xs font-bold transition hover:bg-indigo-500 sm:px-6 sm:text-sm"
+        className="rounded-xl bg-indigo-600 px-4 py-2 text-xs font-bold text-white transition hover:bg-indigo-500 sm:px-5 sm:text-sm"
       >
-        Giris Yap
+        Giriş Yap
       </Link>
     );
   }
 
   return (
-    <div className="flex items-center gap-2 sm:gap-3">
-      {/* Club Admin: Etkinlik Yönetimi butonu */}
-      {role === 'club_admin' && (
+    <div className="flex items-center gap-2 sm:gap-2.5">
+      {role === 'club_admin' ? (
         <Link
           href="/dashboard"
-          className="hidden items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs font-bold text-amber-200 transition hover:border-amber-500/60 hover:bg-amber-500/20 sm:flex sm:px-4 sm:py-2"
+          className="hidden items-center gap-1.5 rounded-xl border border-indigo-500/35 bg-indigo-500/10 px-3 py-1.5 text-xs font-bold text-indigo-200 transition hover:border-indigo-500/55 hover:bg-indigo-500/20 sm:inline-flex sm:px-3.5 sm:py-2"
         >
           <LayoutDashboard className="h-3.5 w-3.5" />
-          Etkinlik Olustur
+          + Etkinlik
         </Link>
-      )}
+      ) : null}
 
-      {/* Kullanıcı adı → Profil linki */}
       <Link
         href="/profile"
-        className="max-w-[90px] truncate rounded-full border border-emerald-400/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-200 transition hover:border-emerald-400/60 hover:bg-emerald-500/20 sm:max-w-[160px] sm:px-4 sm:py-2 sm:text-sm"
+        className="max-w-[100px] truncate rounded-xl border border-slate-700 bg-slate-800/70 px-3 py-1.5 text-xs font-semibold text-slate-200 transition hover:border-slate-600 hover:bg-slate-800 sm:max-w-[160px] sm:px-3.5 sm:py-2 sm:text-sm"
         title="Profile git"
       >
         {displayName}
       </Link>
 
-      {/* Çıkış */}
       <button
         type="button"
         onClick={handleSignOut}
         disabled={isSigningOut}
-        className="rounded-full border border-slate-600 bg-slate-800 px-3 py-1.5 text-xs font-semibold text-slate-200 transition hover:border-slate-500 hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60 sm:px-4 sm:py-2"
+        className="rounded-xl border border-slate-700 bg-transparent px-3 py-1.5 text-xs font-semibold text-slate-400 transition hover:border-slate-600 hover:bg-slate-800 hover:text-slate-200 disabled:cursor-not-allowed disabled:opacity-60 sm:px-3.5 sm:py-2"
       >
-        {isSigningOut ? '...' : 'Cikis'}
+        {isSigningOut ? '...' : 'Çıkış'}
       </button>
     </div>
   );

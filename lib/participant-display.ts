@@ -64,6 +64,13 @@ export function mapParticipationRows(rows: ParticipationRow[]): ParticipantItem[
     const avatarRaw = profile?.avatar_url;
     const avatarUrl =
       typeof avatarRaw === 'string' && avatarRaw.trim() ? avatarRaw.trim() : null;
-    return { userId: String(row.user_id), name, avatarUrl };
+    return {
+      userId: String(row.user_id),
+      name,
+      avatarUrl,
+      status: row.status === 'waitlisted' || row.status === 'cancelled' || row.status === 'confirmed'
+        ? row.status
+        : 'confirmed',
+    };
   });
 }

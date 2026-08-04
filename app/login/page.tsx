@@ -63,7 +63,7 @@ export default function LoginPage() {
           },
         });
         if (error) throw error;
-        toast.success('Kayit basarili! Onay mailini kontrol et.');
+        toast.success('Kayıt başarılı! Onay mailini kontrol et.');
       } else {
         const { data, error } = await supabase.auth.signInWithPassword({
           email: email.trim(),
@@ -101,7 +101,7 @@ export default function LoginPage() {
             UniEventra
           </Link>
           <h1 className="mt-3 text-xl font-bold text-white sm:mt-4 sm:text-2xl">
-            {isSignUp ? 'Kayit Ol' : 'Giris Yap'}
+            {isSignUp ? 'Kayıt Ol' : 'Giriş Yap'}
           </h1>
         </div>
 
@@ -130,7 +130,7 @@ export default function LoginPage() {
               {/* Üniversite Seçimi */}
               <div>
                 <label className="mb-1.5 block text-xs font-semibold uppercase tracking-widest text-slate-500">
-                  Universite
+                  Üniversite
                 </label>
                 <select
                   value={university}
@@ -146,7 +146,7 @@ export default function LoginPage() {
               {/* Rol Seçimi */}
               <div>
                 <p className="mb-2.5 text-xs font-semibold uppercase tracking-widest text-slate-500">
-                  Rolunu Sec
+                  Rolünü seç
                 </p>
                 <div className="grid grid-cols-2 gap-2.5">
                   {/* Öğrenci kartı */}
@@ -162,7 +162,7 @@ export default function LoginPage() {
                     <GraduationCap className={`h-6 w-6 ${role === 'student' ? 'text-indigo-400' : 'text-slate-500'}`} />
                     <span className="text-xs font-bold leading-tight">Ogrenci</span>
                     <span className="text-[10px] leading-tight opacity-70">
-                      Etkinlikleri kesfet ve katil
+                      Etkinlikleri keşfet ve katıl
                     </span>
                     {/* Seçili işareti */}
                     {role === 'student' && (
@@ -183,7 +183,7 @@ export default function LoginPage() {
                     <Star className={`h-6 w-6 ${role === 'club_admin' ? 'text-amber-400' : 'text-slate-500'}`} />
                     <span className="text-xs font-bold leading-tight">Kulup Yetkilisi</span>
                     <span className="text-[10px] leading-tight opacity-70">
-                      Etkinlik olustur ve yonet
+                      Etkinlik oluştur ve yönet
                     </span>
                     {role === 'club_admin' && (
                       <span className="mt-1 flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 text-[9px] font-black text-white">✓</span>
@@ -239,7 +239,7 @@ export default function LoginPage() {
             disabled={loading}
             className="w-full rounded-xl bg-indigo-600 py-3 text-sm font-bold text-white transition hover:bg-indigo-500 disabled:opacity-50 sm:py-3.5"
           >
-            {loading ? 'Baglaniliyor...' : isSignUp ? 'Kayit Ol' : 'Giris Yap'}
+            {loading ? 'Bağlanılıyor...' : isSignUp ? 'Kayıt Ol' : 'Giriş Yap'}
           </button>
         </form>
 
@@ -248,7 +248,7 @@ export default function LoginPage() {
           onClick={() => { setIsSignUp(!isSignUp); setErrorStatus(null); }}
           className="mt-5 w-full text-xs text-slate-500 hover:text-slate-400 sm:mt-6"
         >
-          {isSignUp ? 'Zaten hesabın var mı? Giris Yap' : 'Hesabın yok mu? Kayit Ol'}
+          {isSignUp ? 'Zaten hesabın var mı? Giriş Yap' : 'Hesabın yok mu? Kayıt Ol'}
         </button>
       </div>
     </main>

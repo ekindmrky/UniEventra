@@ -1,10 +1,9 @@
-import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { unstable_noStore as noStore } from 'next/cache';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
 import { resolveDisplayName, resolveUserRole } from '@/lib/auth';
 import type { EventItem, UserProfile } from '@/lib/types';
-import { NavbarAuthControls } from '@/app/navbar-auth-controls';
+import { AppShell } from '@/app/components/app-shell';
 import { ProfileClient } from './profile-client';
 
 export default async function ProfilePage() {
@@ -89,32 +88,23 @@ export default async function ProfilePage() {
   const campusEvents: EventItem[] = campusEventsData;
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100">
-      <nav className="sticky top-0 z-50 border-b border-slate-800 bg-slate-950/60 backdrop-blur-xl">
-        <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-3 sm:px-6 sm:py-4">
-          <Link href="/" className="text-xl font-black text-indigo-400 sm:text-2xl">
-            UniEventra
-          </Link>
-          <NavbarAuthControls
-            isLoggedIn
-            displayName={resolveDisplayName(user)}
-            role={role}
-          />
-        </div>
-      </nav>
-
-      <div className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6 sm:py-12">
-        <ProfileClient
-          userId={user.id}
-          role={role}
-          initialProfile={profile}
-          userEmail={user.email ?? null}
-          userMeta={user.user_metadata as Record<string, string> | null}
-          joinedEvents={joinedEvents}
-          createdEvents={createdEvents}
-          campusEvents={campusEvents}
-        />
-      </div>
-    </main>
+    <AppShell
+      isLoggedIn
+      displayName={resolveDisplayName(user)}
+      role={role}
+      userId={user.id}
+      maxWidthClassName="max-w-4xl"
+    >
+      <ProfileClient
+        userId={user.id}
+        role={role}
+        initialProfile={profile}
+        userEmail={user.email ?? null}
+        userMeta={user.user_metadata as Record<string, string> | null}
+        joinedEvents={joinedEvents}
+        createdEvents={createdEvents}
+        campusEvents={campusEvents}
+      />
+    </AppShell>
   );
 }

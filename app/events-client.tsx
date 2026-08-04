@@ -2,85 +2,76 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { CalendarDays, MapPin, Search, Building2 } from 'lucide-react';
 import type { EventItem } from '@/lib/types';
 import { supabase } from '@/lib/supabase';
+import {
+  dateParts,
+  formatEventDate,
+  isThisWeekDate,
+  isTodayDate,
+} from '@/lib/event-date';
+import { clubPath } from '@/lib/club-slug';
 
 type EventsClientProps = {
   initialEvents: EventItem[];
+  isClubAdmin?: boolean;
 };
 
-// ---------------------------------------------------------------------------
-// Sabit stiller
-// ---------------------------------------------------------------------------
+type DateFilter = 'all' | 'today' | 'week';
 
-const CATEGORY_STYLES: Record<string, { badge: string; cardHover: string }> = {
-  Sosyal:    { badge: 'border-indigo-400/30 bg-indigo-500/10 text-indigo-200',  cardHover: 'hover:border-indigo-500/60' },
-  Akademik:  { badge: 'border-amber-400/30 bg-amber-500/10 text-amber-200',    cardHover: 'hover:border-amber-500/60' },
-  Spor:      { badge: 'border-green-400/30 bg-green-500/10 text-green-200',    cardHover: 'hover:border-green-500/60' },
-  Teknoloji: { badge: 'border-purple-400/30 bg-purple-500/10 text-purple-200', cardHover: 'hover:border-purple-500/60' },
+const CATEGORY_STYLES: Record<string, { badge: string; cardHover: string; accent: string }> = {
+  Sosyal: {
+    badge: 'border-indigo-400/30 bg-indigo-500/10 text-indigo-200',
+    cardHover: 'hover:border-indigo-500/50',
+    accent: 'bg-indigo-500/15 text-indigo-200',
+  },
+  Akademik: {
+    badge: 'border-amber-400/30 bg-amber-500/10 text-amber-200',
+    cardHover: 'hover:border-amber-500/50',
+    accent: 'bg-amber-500/15 text-amber-200',
+  },
+  Spor: {
+    badge: 'border-green-400/30 bg-green-500/10 text-green-200',
+    cardHover: 'hover:border-green-500/50',
+    accent: 'bg-green-500/15 text-green-200',
+  },
+  Teknoloji: {
+    badge: 'border-violet-400/30 bg-violet-500/10 text-violet-200',
+    cardHover: 'hover:border-violet-500/50',
+    accent: 'bg-violet-500/15 text-violet-200',
+  },
 };
 
 const CATEGORY_ORDER = ['Sosyal', 'Akademik', 'Spor', 'Teknoloji'] as const;
 
-// ---------------------------------------------------------------------------
-// Yardımcı fonksiyonlar
-// ---------------------------------------------------------------------------
-
-function formatEventDate(date: string, time?: string | null): string {
-  // Tarih ve saati birlestirerek dogru parse edilmesini sagla
-  const combined = time ? `${date}T${time.slice(0, 5)}` : date;
-  const d = new Date(combined);
-  if (Number.isNaN(d.getTime())) return date;
-  return new Intl.DateTimeFormat('tr-TR', {
-    dateStyle: 'medium',
-    ...(time ? { timeStyle: 'short' as const } : {}),
-  }).format(d);
-}
-
-// ---------------------------------------------------------------------------
-// Skeleton kart (yükleme animasyonu)
-// ---------------------------------------------------------------------------
-
 function CardSkeleton() {
   return (
-    <div className="flex h-full animate-pulse flex-col rounded-2xl border border-slate-800/70 bg-slate-900/60 p-5 sm:p-6">
-      <div className="mb-4 h-5 w-20 rounded-full bg-slate-800/80" />
-      <div className="mb-2 h-5 w-3/4 rounded-lg bg-slate-800/80" />
-      <div className="h-4 w-1/2 rounded-lg bg-slate-800/60" />
-      <div className="mt-5 space-y-2.5">
-        <div className="h-3.5 w-44 rounded bg-slate-800/60" />
-        <div className="h-3.5 w-36 rounded bg-slate-800/60" />
-      </div>
-      <div className="mt-auto pt-5">
-        <div className="h-3 w-24 rounded bg-slate-800/40" />
+    <div className="flex h-full animate-pulse gap-4 rounded-2xl border border-slate-800/70 bg-slate-900/60 p-4 sm:p-5">
+      <div className="h-[4.5rem] w-14 shrink-0 rounded-xl bg-slate-800/80" />
+      <div className="flex flex-1 flex-col gap-2.5">
+        <div className="h-4 w-16 rounded-full bg-slate-800/80" />
+        <div className="h-5 w-3/4 rounded-lg bg-slate-800/80" />
+        <div className="h-3.5 w-1/2 rounded bg-slate-800/60" />
       </div>
     </div>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Ana bileşen
-// ---------------------------------------------------------------------------
-
-export function EventsClient({ initialEvents }: EventsClientProps) {
+export function EventsClient({ initialEvents, isClubAdmin = false }: EventsClientProps) {
   const [query, setQuery] = useState('');
-  const [activeCategory, setActiveCategory] = useState<string>('Tum');
+  const [activeCategory, setActiveCategory] = useState<string>('Tümü');
+  const [dateFilter, setDateFilter] = useState<DateFilter>('all');
   const [events, setEvents] = useState<EventItem[]>(initialEvents);
   const [isLoading, setIsLoading] = useState(false);
-
-  // Debounce timer referansı
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Kategori listesi: sabit sıra + veritabanından gelen bilinmeyen kategoriler
   const categories = useMemo<string[]>(() => {
     const all = Array.from(new Set(initialEvents.map((e) => e.category).filter(Boolean)));
     const extras = all.filter((cat) => !CATEGORY_ORDER.includes(cat as never));
-    return ['Tum', ...CATEGORY_ORDER, ...extras];
+    return ['Tümü', ...CATEGORY_ORDER, ...extras];
   }, [initialEvents]);
 
-  // ---------------------------------------------------------------------------
-  // Supabase fetch — ilike ile sunucu taraflı arama
-  // ---------------------------------------------------------------------------
   const fetchEvents = useCallback(async (searchQuery: string, category: string) => {
     setIsLoading(true);
     try {
@@ -90,40 +81,26 @@ export function EventsClient({ initialEvents }: EventsClientProps) {
         .order('date', { ascending: true });
 
       if (searchQuery.trim()) {
-        // title VEYA description içinde arama (case-insensitive)
         q = q.or(
           `title.ilike.%${searchQuery.trim()}%,description.ilike.%${searchQuery.trim()}%`,
         );
       }
 
-      if (category !== 'Tum') {
+      if (category !== 'Tümü') {
         q = q.eq('category', category);
       }
 
       const { data, error } = await q;
-      if (!error) {
-        setEvents((data ?? []) as EventItem[]);
-      }
+      if (!error) setEvents((data ?? []) as EventItem[]);
     } finally {
       setIsLoading(false);
     }
   }, []);
 
-  // ---------------------------------------------------------------------------
-  // Debounce efekti — hem sorgu hem kategori değişimini izler
-  // ---------------------------------------------------------------------------
   useEffect(() => {
-    // Varsayilan durum: sunucudan gelen initialEvents zaten dogru.
-    // Gereksiz fetch yapma — bu yaklasim React StrictMode cift-effect
-    // sorununu da otomatik olarak cözer.
-    if (query === '' && activeCategory === 'Tum') {
-      return;
-    }
+    if (query === '' && activeCategory === 'Tümü') return;
 
-    // Önceki zamanlayıcıyı iptal et
     if (debounceRef.current) clearTimeout(debounceRef.current);
-
-    // Metin araması: 350ms bekle. Kategori degisimi: 80ms (neredeyse ani).
     const delay = query.trim() !== '' ? 350 : 80;
 
     debounceRef.current = setTimeout(() => {
@@ -135,69 +112,80 @@ export function EventsClient({ initialEvents }: EventsClientProps) {
     };
   }, [query, activeCategory, fetchEvents]);
 
-  // ---------------------------------------------------------------------------
-  // Filtreleri sıfırla
-  // ---------------------------------------------------------------------------
   function clearFilters() {
     setQuery('');
-    setActiveCategory('Tum');
+    setActiveCategory('Tümü');
+    setDateFilter('all');
   }
 
-  const hasActiveFilter = query.trim() !== '' || activeCategory !== 'Tum';
+  const hasServerFilter = query.trim() !== '' || activeCategory !== 'Tümü';
+  const baseEvents = hasServerFilter ? events : initialEvents;
 
-  // Filtre yoksa sunucu verisini kullan (gereksiz fetch yok).
-  // Filtre varsa Supabase'den gelen events state'ini kullan.
-  const displayEvents = hasActiveFilter ? events : initialEvents;
+  const displayEvents = useMemo(() => {
+    if (dateFilter === 'all') return baseEvents;
+    if (dateFilter === 'today') return baseEvents.filter((e) => isTodayDate(e.date));
+    return baseEvents.filter((e) => isThisWeekDate(e.date));
+  }, [baseEvents, dateFilter]);
 
-  // ---------------------------------------------------------------------------
-  // Render
-  // ---------------------------------------------------------------------------
+  const hasActiveFilter = hasServerFilter || dateFilter !== 'all';
+  const isGloballyEmpty = initialEvents.length === 0 && !hasActiveFilter;
+
   return (
     <div className="w-full">
-      {/* ------------------------------------------------------------------ */}
-      {/* Arama çubuğu + kategori filtreleri                                  */}
-      {/* ------------------------------------------------------------------ */}
-      <div className="flex flex-col gap-3 rounded-2xl border border-slate-800/70 bg-slate-900/50 p-4 sm:p-5">
-        {/* Arama inputu + yükleme spinner'ı */}
+      {/* Sticky filtre alanı */}
+      <div className="sticky top-[57px] z-40 -mx-4 space-y-3 border-b border-slate-800/60 bg-slate-950/90 px-4 py-3 backdrop-blur-xl sm:top-[61px] sm:mx-0 sm:rounded-2xl sm:border sm:border-slate-800/70 sm:bg-slate-900/55 sm:px-5 sm:py-4">
         <div className="relative">
-          <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500">
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
-            </svg>
-          </span>
+          <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
           <input
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Etkinlik ara... (başlık veya açıklamada)"
-            className="w-full rounded-xl border border-slate-800 bg-slate-950/70 py-3 pl-10 pr-10 text-sm text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-indigo-500/60 focus:ring-2 focus:ring-indigo-500/15"
+            placeholder="Etkinlik, açıklama veya yer ara…"
+            className="w-full rounded-xl border border-slate-800 bg-slate-950/80 py-3 pl-10 pr-10 text-sm text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-indigo-500/60 focus:ring-2 focus:ring-indigo-500/15"
           />
-          {/* Yükleme spinner — sadece aktif filtre varken gorunur */}
-          <span
-            className={`pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 transition-opacity duration-200 ${isLoading && hasActiveFilter ? 'opacity-100' : 'opacity-0'}`}
-          >
-            <svg className="h-4 w-4 animate-spin text-indigo-400" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-            </svg>
-          </span>
+          {isLoading && hasServerFilter ? (
+            <span className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2">
+              <span className="block h-4 w-4 animate-spin rounded-full border-2 border-indigo-400/30 border-t-indigo-400" />
+            </span>
+          ) : null}
         </div>
 
-        {/* Kaydırılabilir kategori pilleri */}
+        {/* Tarih hızlı filtreleri */}
+        <div className="flex flex-wrap gap-2">
+          {(
+            [
+              { id: 'all', label: 'Tümü' },
+              { id: 'today', label: 'Bugün' },
+              { id: 'week', label: 'Bu hafta' },
+            ] as const
+          ).map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setDateFilter(item.id)}
+              className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                dateFilter === item.id
+                  ? 'bg-indigo-500 text-white shadow-sm shadow-indigo-500/25'
+                  : 'bg-slate-800/70 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+              }`}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Kategori */}
         <div className="-mx-1 overflow-x-auto px-1 pb-0.5">
-          <div className="flex items-center gap-2 sm:flex-wrap">
-            <span className="shrink-0 text-[10px] font-semibold uppercase tracking-widest text-slate-600">
-              Filtrele:
-            </span>
+          <div className="flex items-center gap-2">
             {categories.map((cat) => (
               <button
                 key={cat}
                 type="button"
                 onClick={() => setActiveCategory(cat)}
-                className={`shrink-0 rounded-full border px-3.5 py-1.5 text-xs font-semibold transition sm:px-4 ${
+                className={`shrink-0 rounded-full border px-3.5 py-1.5 text-xs font-semibold transition ${
                   activeCategory === cat
                     ? 'border-indigo-500/60 bg-indigo-500/20 text-indigo-300'
-                    : 'border-slate-700/60 bg-slate-800/50 text-slate-500 hover:border-slate-600 hover:bg-slate-800 hover:text-slate-300'
+                    : 'border-slate-700/60 bg-slate-800/40 text-slate-500 hover:border-slate-600 hover:text-slate-300'
                 }`}
               >
                 {cat}
@@ -207,110 +195,145 @@ export function EventsClient({ initialEvents }: EventsClientProps) {
         </div>
       </div>
 
-      {/* ------------------------------------------------------------------ */}
-      {/* Etkinlik listesi                                                    */}
-      {/* ------------------------------------------------------------------ */}
-      {isLoading && hasActiveFilter ? (
-        /* Skeleton kartlar — grid yüksekliği korunuyor, zıplama yok */
-        <section className="mt-6 grid gap-4 sm:mt-10 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3">
+      {/* Sonuç özeti */}
+      <div className="mt-4 flex items-center justify-between text-xs text-slate-500 sm:mt-5">
+        <p>
+          <span className="font-semibold text-slate-300">{displayEvents.length}</span> etkinlik
+        </p>
+        {hasActiveFilter ? (
+          <button
+            type="button"
+            onClick={clearFilters}
+            className="font-semibold text-indigo-400 hover:text-indigo-300"
+          >
+            Filtreleri temizle
+          </button>
+        ) : null}
+      </div>
+
+      {isLoading && hasServerFilter ? (
+        <section className="mt-4 grid gap-3 sm:mt-5 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
           {Array.from({ length: Math.max(displayEvents.length, 3) }).map((_, i) => (
             <CardSkeleton key={i} />
           ))}
         </section>
       ) : displayEvents.length > 0 ? (
-        <section className="mt-6 grid gap-4 sm:mt-10 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3">
+        <section className="mt-4 grid gap-3 sm:mt-5 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
           {displayEvents.map((event) => {
             const style = CATEGORY_STYLES[event.category] ?? {
               badge: 'border-slate-700/60 bg-slate-800/60 text-slate-400',
               cardHover: 'hover:border-slate-700',
+              accent: 'bg-slate-800 text-slate-300',
             };
+            const parts = dateParts(event.date);
             return (
-              <Link href={`/events/${event.id}`} key={event.id} className="group block">
-                <article
-                  className={`relative flex h-full flex-col overflow-hidden rounded-2xl border border-slate-800/70 bg-slate-900/60 p-5 transition-all duration-300 active:scale-[0.98] sm:p-6 sm:group-hover:-translate-y-1 sm:group-hover:shadow-xl sm:group-hover:shadow-black/40 ${style.cardHover}`}
+              <article
+                key={event.id}
+                className={`group flex h-full gap-3.5 rounded-2xl border border-slate-800/70 bg-slate-900/55 p-4 transition-all duration-200 sm:gap-4 sm:p-5 sm:hover:-translate-y-0.5 sm:hover:shadow-lg sm:hover:shadow-black/30 ${style.cardHover}`}
+              >
+                <Link
+                  href={`/events/${event.id}`}
+                  className={`flex w-14 shrink-0 flex-col items-center justify-center rounded-xl px-1 py-2 text-center ${style.accent}`}
                 >
-                  {/* Kategori rozeti + Yayınlayan */}
-                  <div className="mb-4 flex flex-wrap items-center gap-2">
-                    <div
-                      className={`inline-flex items-center rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-widest ${style.badge}`}
+                  <span className="text-[10px] font-semibold uppercase tracking-wide opacity-80">
+                    {parts.month}
+                  </span>
+                  <span className="text-xl font-black leading-none">{parts.day}</span>
+                  <span className="mt-0.5 text-[10px] capitalize opacity-70">{parts.weekday}</span>
+                </Link>
+
+                <div className="min-w-0 flex-1">
+                  <div className="mb-2 flex flex-wrap items-center gap-1.5">
+                    <span
+                      className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${style.badge}`}
                     >
                       {event.category}
-                    </div>
-                    {event.organizer_club && (
-                      <span className="inline-flex items-center gap-1 rounded-full border border-slate-700/50 bg-slate-800/50 px-2.5 py-1 text-[10px] text-slate-400">
-                        <span className="opacity-60">🏛</span>
-                        {event.organizer_club}
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Başlık */}
-                  <h2 className="text-[15px] font-bold leading-snug text-white transition-colors group-hover:text-indigo-300 sm:text-lg">
-                    {event.title}
-                  </h2>
-
-                  {/* Meta bilgiler */}
-                  <div className="mt-4 space-y-2.5 text-xs text-slate-500 sm:mt-5">
-                    <p className="flex items-center gap-2">
-                      <span className="text-sm">📅</span>
-                      <span className="text-slate-400">{formatEventDate(event.date, event.time)}</span>
-                    </p>
-                    <p className="flex items-center gap-2">
-                      <span className="text-sm">📍</span>
-                      <span className="font-medium text-slate-300">{event.location}</span>
-                    </p>
-                  </div>
-
-                  {/* Alt link — her zaman kartın altına yapışık */}
-                  <div className="mt-auto pt-5">
-                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-400 opacity-0 transition-all duration-200 group-hover:opacity-100">
-                      Detaylari Gor
-                      <svg
-                        className="h-3 w-3 transition-transform group-hover:translate-x-0.5"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                        strokeWidth={2.5}
-                      >
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                      </svg>
                     </span>
+                    {isTodayDate(event.date) ? (
+                      <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-300">
+                        Bugün
+                      </span>
+                    ) : null}
                   </div>
-                </article>
-              </Link>
+
+                  <Link href={`/events/${event.id}`}>
+                    <h2 className="truncate text-[15px] font-bold leading-snug text-white transition-colors group-hover:text-indigo-300 sm:text-base">
+                      {event.title}
+                    </h2>
+                  </Link>
+
+                  <div className="mt-2.5 space-y-1.5 text-xs text-slate-500">
+                    <p className="flex items-center gap-1.5">
+                      <CalendarDays className="h-3.5 w-3.5 shrink-0 text-slate-600" />
+                      <span className="text-slate-400">
+                        {formatEventDate(event.date, event.time)}
+                      </span>
+                    </p>
+                    <p className="flex items-center gap-1.5">
+                      <MapPin className="h-3.5 w-3.5 shrink-0 text-slate-600" />
+                      <span className="truncate font-medium text-slate-300">{event.location}</span>
+                    </p>
+                    {event.organizer_club ? (
+                      <p className="flex items-center gap-1.5">
+                        <Building2 className="h-3.5 w-3.5 shrink-0 text-slate-600" />
+                        <Link
+                          href={clubPath(event.organizer_club)}
+                          className="truncate text-slate-400 underline-offset-2 hover:text-indigo-300 hover:underline"
+                        >
+                          {event.organizer_club}
+                        </Link>
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+              </article>
             );
           })}
         </section>
       ) : !isLoading ? (
-        /* ---------------------------------------------------------------- */
-        /* Boş durum                                                         */
-        /* ---------------------------------------------------------------- */
-        <div className="mt-10 flex flex-col items-center rounded-3xl border border-dashed border-slate-800 py-16 text-center sm:mt-14">
-          {/* İllüstrasyon */}
-          <div className="mb-5 flex h-20 w-20 items-center justify-center rounded-full border border-slate-800 bg-slate-900">
-            <svg className="h-9 w-9 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
-            </svg>
+        <div className="mt-8 flex flex-col items-center rounded-3xl border border-dashed border-slate-800 px-6 py-14 text-center sm:mt-10">
+          <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-slate-800 bg-slate-900">
+            <CalendarDays className="h-7 w-7 text-slate-600" />
           </div>
 
-          <p className="text-base font-semibold text-slate-300">Etkinlik bulunamadi</p>
-          <p className="mt-2 max-w-xs text-sm text-slate-500">
-            {query.trim()
-              ? `"${query}" aramasına`
-              : activeCategory !== 'Tum'
-                ? `"${activeCategory}" kategorisinde`
-                : 'Seçilen kriterlere'}
-            {' '}uygun etkinlik yok.
-          </p>
-
-          {hasActiveFilter && (
-            <button
-              type="button"
-              onClick={clearFilters}
-              className="mt-5 rounded-xl border border-slate-700 bg-slate-900 px-5 py-2.5 text-sm font-semibold text-slate-300 transition hover:border-slate-600 hover:bg-slate-800 hover:text-white"
-            >
-              Filtreleri Temizle
-            </button>
+          {isGloballyEmpty ? (
+            <>
+              <p className="text-base font-semibold text-slate-200">Henüz etkinlik yok</p>
+              <p className="mt-2 max-w-sm text-sm text-slate-500">
+                Kampüste yeni etkinlikler eklendiğinde burada görünecek.
+              </p>
+              {isClubAdmin ? (
+                <Link
+                  href="/dashboard"
+                  className="mt-5 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-indigo-500"
+                >
+                  İlk etkinliği oluştur
+                </Link>
+              ) : null}
+            </>
+          ) : (
+            <>
+              <p className="text-base font-semibold text-slate-200">Etkinlik bulunamadı</p>
+              <p className="mt-2 max-w-xs text-sm text-slate-500">
+                {query.trim()
+                  ? `"${query}" aramasına`
+                  : activeCategory !== 'Tümü'
+                    ? `"${activeCategory}" kategorisinde`
+                    : dateFilter === 'today'
+                      ? 'Bugün için'
+                      : dateFilter === 'week'
+                        ? 'Bu hafta için'
+                        : 'Seçilen kriterlere'}{' '}
+                uygun etkinlik yok.
+              </p>
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="mt-5 rounded-xl border border-slate-700 bg-slate-900 px-5 py-2.5 text-sm font-semibold text-slate-300 transition hover:border-slate-600 hover:bg-slate-800 hover:text-white"
+              >
+                Filtreleri temizle
+              </button>
+            </>
           )}
         </div>
       ) : null}

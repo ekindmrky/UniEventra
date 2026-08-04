@@ -1,18 +1,33 @@
 @import "tailwindcss";
 
-/*
-  Tailwind CSS v4: @import "tailwindcss" tek satir ile
-  base + components + utilities hepsini kapsar.
-  Eski v3 direktifleri (@tailwind base/components/utilities)
-  v4 ile uyumsuz oldugu icin kaldirildi.
-*/
-
 :root {
   color-scheme: dark;
+  --ue-bg: #020617;
+  --ue-surface: rgba(15, 23, 42, 0.6);
+  --ue-border: rgba(30, 41, 59, 0.8);
+  --ue-accent: #6366f1;
+  --ue-accent-soft: rgba(99, 102, 241, 0.15);
+  --ue-text: #f1f5f9;
+  --ue-muted: #94a3b8;
 }
 
 body {
   @apply bg-slate-950 text-slate-100;
   margin: 0;
   padding: 0;
+  background-color: var(--ue-bg);
+  color: var(--ue-text);
+}
+
+/* Odak halkası — klavye erişilebilirliği */
+:focus-visible {
+  outline: 2px solid rgba(99, 102, 241, 0.7);
+  outline-offset: 2px;
+}
+
+/* Mobil alt sekme için güvenli alan */
+@supports (padding: env(safe-area-inset-bottom)) {
+  body {
+    padding-bottom: 0;
+  }
 }
